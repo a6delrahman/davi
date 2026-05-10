@@ -149,11 +149,17 @@ col_table, col_fazit = st.columns([1.5, 1])
 
 with col_table:
     st.subheader("🚨 Top 10 Logistik-Hotspots")
-    st.caption("Diese Länder benötigen höchste Priorität bei der Lagerauffüllung.")
-    top_countries = filtered_df.groupby('country')[['units_sold', 'revenue_usd']].sum().reset_index()
-    top_countries = top_countries.sort_values(by='units_sold', ascending=False).head(10)
-    top_countries.index = range(1, 11) 
-    st.dataframe(top_countries.style.background_gradient(subset=['units_sold'], cmap='Blues').format({'revenue_usd': '${:,.0f}'}), use_container_width=True)
+    st.caption("Diese Städte benötigen höchste Priorität bei der lokalen Lagerauffüllung.")
+    
+    # FIX: Groupby includes both 'country' and 'city' now
+    top_hotspots = filtered_df.groupby(['country', 'city'])[['units_sold', 'revenue_usd']].sum().reset_index()
+    top_hotspots = top_hotspots.sort_values(by='units_sold', ascending=False).head(10)
+    top_hotspots.index = range(1, 11) 
+    
+    st.dataframe(
+        top_hotspots.style.background_gradient(subset=['units_sold'], cmap='Blues').format({'revenue_usd': '${:,.0f}'}), 
+        use_container_width=True
+    )
 
 with col_fazit:
     st.subheader("💡 Handlungsempfehlung")
@@ -161,7 +167,5 @@ with col_fazit:
     **Vom Report zur Aktion:**
     1. **Fokus:** Identifizieren Sie im Balkendiagramm die Bestseller und allozieren Sie Budgets entsprechend.
     2. **Timing:** Nutzen Sie die Heatmap und den Trend-Indikator, um Bestellungen auszulösen, *bevor* die Nachfragespitze eintritt.
-    3. **Routing:** Routen Sie Container-Schiffe priorisiert in die Top 10 Hotspots, um Transportkosten zu sparen.
+    3. **Routing:** Routen Sie Container-Schiffe priorisiert in die Top 10 Hotspots (siehe Tabelle links), um Transportkosten zu sparen.
     """)
-
-
