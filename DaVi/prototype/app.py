@@ -158,10 +158,11 @@ with col_table:
     st.subheader("🚨 Top 10 Logistik-Hotspots")
     st.caption("Diese Städte benötigen höchste Priorität bei der lokalen Lagerauffüllung.")
     
-    # Inklusive der Anpassung für Land und Stadt aus dem vorherigen Schritt
     top_hotspots = filtered_df.groupby(['country', 'city'])[['units_sold', 'revenue_usd']].sum().reset_index()
     top_hotspots = top_hotspots.sort_values(by='units_sold', ascending=False).head(10)
-    top_hotspots.index = range(1, 11) 
+    
+    # FIX: Dynamischer Index! Passt sich automatisch an, egal ob 1, 3 oder 10 Zeilen vorhanden sind.
+    top_hotspots.index = range(1, len(top_hotspots) + 1) 
     
     st.dataframe(
         top_hotspots.style.background_gradient(subset=['units_sold'], cmap='Blues').format({'revenue_usd': '${:,.0f}'}), 
