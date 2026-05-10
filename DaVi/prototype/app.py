@@ -1,8 +1,8 @@
 import streamlit as st
 import pandas as pd
+import plotly.graph_objects as go
 import altair as alt
 import requests
-from vega_datasets import data
 
 # --- Konfiguration der Seite ---
 st.set_page_config(
@@ -27,7 +27,7 @@ def fetch_city_coordinates(city_name):
 # --- Phase 1: Data Loading ---
 @st.cache_data
 def load_data():
-    df = pd.read_csv('DaVi/prototype/samsung_global_sales_dataset.csv')
+    df = pd.read_csv('samsung_global_sales_dataset.csv')
     df['sale_date'] = pd.to_datetime(df['sale_date'])
     return df
 
@@ -103,12 +103,12 @@ col3.metric("Ø Preis pro Einheit", f"${avg_price_per_unit:,.2f}")
 col4.metric("Stärkster Markt", top_country)
 st.divider()
 
-# --- Phase 4: Geografie (Altair) & Produkttiefe (Altair) ---
+# --- Phase 4: Geografie (Plotly styled as Altair) & Produkttiefe (Altair) ---
 col_map, col_bar = st.columns(2)
 
 with col_map:
     st.subheader("🌍 Geografische Verteilung")
-    st.caption("Logistik-Hubs der aktuellen Auswahl (Größe & Farbe nach Umsatz).")
+    st.caption("Logistik-Hubs der aktuellen Auswahl (Interaktiv: Zoom, Pan & Reset).")
     
     # Daten für die API vorbereiten
     city_sales = filtered_df.groupby('city')[['revenue_usd', 'units_sold']].sum().reset_index()
@@ -125,37 +125,49 @@ with col_map:
     
     city_sales_mapped = city_sales.dropna(subset=['lat', 'lon'])
 
-    # Weltkarte laden (Hintergrund)
-    world = alt.topo_feature(data.world_110m.url, 'countries')
+    # --- PLOTLY IM ALTAIR DESIGN ---
+    fig_map = go.Figure()
 
-    base_map = alt.Chart(world).mark_geoshape(
-        fill='#F0F0F0', stroke='white', strokeWidth=0.5
-    ).project('naturalEarth1')
-
-    # Rote Pins/Blasen zeichnen
     if not city_sales_mapped.empty:
-        points = alt.Chart(city_sales_mapped).mark_circle(
-            opacity=0.8, stroke='white', strokeWidth=1
-        ).encode(
-            longitude='lon:Q', 
-            latitude='lat:Q',
-            # 1. Größe der Blase basierend auf Umsatz
-            size=alt.Size('revenue_usd:Q', scale=alt.Scale(range=[20, 500]), legend=None),
-            # 2. Farbe der Blase basierend auf Umsatz (Das erzeugt die COLOR BAR rechts!)
-            color=alt.Color('revenue_usd:Q', 
-                            scale=alt.Scale(scheme='reds'), 
-                            legend=alt.Legend(title='Umsatz (USD)', orient='right', format='$,.0f')),
-            tooltip=[
-                alt.Tooltip('city:N', title='Stadt'),
-                alt.Tooltip('revenue_usd:Q', title='Umsatz', format='$,.0f'),
-                alt.Tooltip('units_sold:Q', title='Einheiten')
-            ]
-        )
-        altair_map = (base_map + points).properties(height=350)
-    else:
-        altair_map = base_map.properties(height=350)
+        # Dynamische Skalierung der Blasen für ein sauberes Bild
+        max_rev = city_sales_mapped['revenue_usd'].max()
+        sizeref_val = 2. * max_rev / (35.**2) if max_rev > 0 else 1
+
+        fig_map.add_trace(go.Scattergeo(
+            lon=city_sales_mapped['lon'], 
+            lat=city_sales_mapped['lat'],
+            mode='markers',
+            marker=dict(
+                size=city_sales_mapped['revenue_usd'],
+                sizemode='area',
+                sizeref=sizeref_val,
+                sizemin=5,
+                color=city_sales_mapped['revenue_usd'],
+                colorscale='Greens', # Grüne Farbskala wie in Altair
+                showscale=True,    # Color Bar auf der rechten Seite!
+                colorbar=dict(title="Umsatz (USD)", thickness=15, outlinewidth=0),
+                line=dict(width=1, color='white')
+            ),
+            hoverinfo="text",
+            hovertext=city_sales_mapped['city'] + "<br>Umsatz: $" + city_sales_mapped['revenue_usd'].apply(lambda x: f"{x:,.0f}") + "<br>Einheiten: " + city_sales_mapped['units_sold'].astype(str),
+        ))
+
+    # Minimalistisches Altair-Styling anwenden (Graue Länder, keine Ozeane)
+    fig_map.update_geos(
+        projection_type="natural earth", 
+        showframe=False, 
+        showcoastlines=True, coastlinecolor="white",
+        showland=True, landcolor="#ADADAD", 
+        showcountries=True, countrycolor="white",
+        showocean=True, oceancolor="#79A9F5"
+    )
     
-    st.altair_chart(altair_map, use_container_width=True)
+    fig_map.update_layout(
+        margin=dict(l=0, r=0, t=10, b=0),
+        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)"
+    )
+    
+    st.plotly_chart(fig_map, use_container_width=True)
 
 with col_bar:
     st.subheader("📦 Bestseller Modelle")
@@ -190,7 +202,7 @@ line_trend = base_line.mark_line(color='#ff7f0e', strokeDash=[5, 5], strokeWidth
     y=alt.Y('MA_Trend:Q'),
     tooltip=[alt.Tooltip('MA_Trend:Q', title='3-Monats-Trend', format='$,.0f')]
 )
-combined_line_chart = (line_revenue + line_trend).properties(height=350)
+combined_line_chart = (line_revenue + line_trend).properties(height=350).interactive()
 st.altair_chart(combined_line_chart, use_container_width=True)
 
 st.subheader("🗓️ Saisonalität & Bestellzyklen")
@@ -230,13 +242,8 @@ with col_table:
     # Dynamischer Index ab 1
     pivot_table.index = range(1, len(pivot_table) + 1) 
     
-    # --- Visuelle Unterscheidung der Städte (Color Mapping) ---
-    unique_cities = pivot_table['city'].unique()
-    pastel_colors = ['#E3F2FD', '#FFF3E0', '#E8F5E9', '#FCE4EC', '#F3E5F5', '#FFFDE7']
-    city_colors = {city: f'background-color: {pastel_colors[i % len(pastel_colors)]}; font-weight: bold; color: black;' for i, city in enumerate(unique_cities)}
-    
     def style_cities(val):
-        return city_colors.get(val, '')
+        return 'background-color: #FFF3E0; font-weight: bold; color: black;'
     
     # Kompatibilitäts-Check
     try:
