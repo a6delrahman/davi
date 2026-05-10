@@ -1,11 +1,8 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
 import altair as alt
 import requests
-import plotly.graph_objects as go
-
-
+from vega_datasets import data
 
 # --- Konfiguration der Seite ---
 st.set_page_config(
@@ -13,6 +10,19 @@ st.set_page_config(
     page_icon="📦",
     layout="wide"
 )
+
+# --- API Geocoding Funktion ---
+@st.cache_data(show_spinner=False)
+def fetch_city_coordinates(city_name):
+    """Holt die GPS-Koordinaten einer Stadt über die kostenlose Open-Meteo API."""
+    url = f"https://geocoding-api.open-meteo.com/v1/search?name={city_name}&count=1&format=json"
+    try:
+        response = requests.get(url, timeout=3).json()
+        if 'results' in response:
+            return response['results'][0]['latitude'], response['results'][0]['longitude']
+    except Exception:
+        pass 
+    return None, None
 
 # --- Phase 1: Data Loading ---
 @st.cache_data
@@ -36,11 +46,11 @@ st.markdown("""
 # --- Phase 2: Optimierte Sidebar (Dynamische & Optionale Filter) ---
 st.sidebar.header("Filter & Steuerung")
 
-# 1. Kategorie-Filter (Startet jetzt komplett leer)
+# 1. Kategorie-Filter (Startet leer)
 all_categories = df['category'].unique().tolist()
 selected_categories = st.sidebar.multiselect("Produktkategorie:", all_categories, default=[])
 
-# 2. Länder-Filter (Startet jetzt komplett leer)
+# 2. Länder-Filter (Startet leer)
 all_countries = sorted(df['country'].unique().tolist())
 selected_countries = st.sidebar.multiselect("Land (Hotspots):", all_countries, default=[])
 
@@ -57,36 +67,26 @@ min_date = df['sale_date'].min().date()
 max_date = df['sale_date'].max().date()
 start_date, end_date = st.sidebar.date_input("Zeitraum wählen:", value=[min_date, max_date], min_value=min_date, max_value=max_date)
 
-
-# --- Performance-Schutz & Dynamische Filter-Logik ---
-
-# 1. Startbildschirm (Zero-State): Verhindert das Laden aller Daten
+# --- Performance-Schutz (Zero-State) ---
 if not selected_categories and not selected_countries:
     st.info("👋 **Willkommen im Dashboard!** \n\nUm Rechenleistung zu sparen, werden die globalen Daten nicht automatisch geladen. Bitte wählen Sie in der Sidebar mindestens eine **Produktkategorie** oder ein **Land** aus, um die Analyse zu starten.")
-    st.stop() # Das Skript stoppt hier. Keine Charts werden gerendert!
+    st.stop() 
 
-# 2. Filtern der Daten (falls mindestens ein Filter gesetzt ist)
+# --- Dynamische Filter-Logik ---
 mask = (df['sale_date'].dt.date >= start_date) & (df['sale_date'].dt.date <= end_date)
 
-# Wenn der Nutzer Kategorien wählt, filtere danach. (Wenn leer = zeige alle Kategorien für das gewählte Land)
 if selected_categories:
     mask &= df['category'].isin(selected_categories)
-
-# Wenn der Nutzer Länder wählt, filtere danach. (Wenn leer = zeige weltweite Daten für die gewählte Kategorie)
 if selected_countries:
     mask &= df['country'].isin(selected_countries)
-
-# Kaskadierender Städtefilter
 if selected_cities:
     mask &= df['city'].isin(selected_cities)
 
 filtered_df = df[mask]
 
-# 3. Fehler abfangen, falls die Kombination keine Treffer liefert
 if filtered_df.empty:
-    st.warning("Keine Daten für diese exakte Kombination verfügbar. Bitte passen Sie die Auswahl in der Sidebar an.")
+    st.warning("Keine Daten für die gewählten Filter verfügbar. Bitte passen Sie die Auswahl in der Sidebar an.")
     st.stop()
-
 
 # --- Phase 3: High-Level KPIs ---
 st.subheader("📊 Executive Summary")
@@ -103,83 +103,59 @@ col3.metric("Ø Preis pro Einheit", f"${avg_price_per_unit:,.2f}")
 col4.metric("Stärkster Markt", top_country)
 st.divider()
 
-# --- Phase 4: Geografie (Plotly 2D mit Live-API Pins) & Produkttiefe (Altair) ---
+# --- Phase 4: Geografie (Altair) & Produkttiefe (Altair) ---
 col_map, col_bar = st.columns(2)
-
-# --- API Geocoding Funktion ---
-@st.cache_data(show_spinner=False)
-def fetch_city_coordinates(city_name):
-    """Holt die GPS-Koordinaten einer Stadt über die kostenlose Open-Meteo API."""
-    url = f"https://geocoding-api.open-meteo.com/v1/search?name={city_name}&count=1&format=json"
-    try:
-        response = requests.get(url, timeout=3).json()
-        if 'results' in response:
-            return response['results'][0]['latitude'], response['results'][0]['longitude']
-    except Exception:
-        pass 
-    return None, None
-# -------------------------------------------------------------------------------
 
 with col_map:
     st.subheader("🌍 Geografische Verteilung")
-    st.caption("Die Karte zeigt exakt die Logistik-Hubs Ihrer aktuellen Filter-Auswahl.")
+    st.caption("Logistik-Hubs der aktuellen Auswahl (Größe & Farbe nach Umsatz).")
     
-    # 1. Base Map (Choropleth für Länder)
-    country_sales = filtered_df.groupby('country')['revenue_usd'].sum().reset_index()
-    fig_map = px.choropleth(
-        country_sales, locations='country', locationmode='country names', 
-        color='revenue_usd', color_continuous_scale='Blues',
-        labels={'revenue_usd': 'Umsatz (USD)', 'country': 'Land'}
-    )
-    
-    # 2. City Overlay: Basierend auf dem exakten Filter (filtered_df)
-    # Wir nehmen Umsatz UND verkaufte Einheiten für das Hover-Fenster
+    # Daten für die API vorbereiten
     city_sales = filtered_df.groupby('city')[['revenue_usd', 'units_sold']].sum().reset_index()
     
-    # Performance-Schutz: Wenn der Filter zu grob ist (> 50 Städte), limitieren wir die Pins
+    # Performance-Schutz
     if len(city_sales) > 50:
-        st.info(f"Es sind {len(city_sales)} Städte im aktuellen Filter. Um Ladezeiten zu optimieren, zeigt die Karte die Top 50 Hubs. Nutzen Sie den Städte-Filter in der Sidebar für spezifischere Analysen.")
+        st.info(f"Es sind {len(city_sales)} Städte im Filter. Zeige die Top 50 Hubs.")
         city_sales = city_sales.sort_values(by='revenue_usd', ascending=False).head(50)
     
-    # Koordinaten über die API abrufen
     with st.spinner('Lade Koordinaten für die Karte...'):
         coords = city_sales['city'].apply(fetch_city_coordinates)
         city_sales['lat'] = [c[0] for c in coords]
         city_sales['lon'] = [c[1] for c in coords]
     
     city_sales_mapped = city_sales.dropna(subset=['lat', 'lon'])
-    
-    # 3. Pins zeichnen (mit erweiterten Hover-Daten)
+
+    # Weltkarte laden (Hintergrund)
+    world = alt.topo_feature(data.world_110m.url, 'countries')
+
+    base_map = alt.Chart(world).mark_geoshape(
+        fill='#F0F0F0', stroke='white', strokeWidth=0.5
+    ).project('naturalEarth1')
+
+    # Rote Pins/Blasen zeichnen
     if not city_sales_mapped.empty:
-        fig_map.add_trace(go.Scattergeo(
-            lon=city_sales_mapped['lon'], 
-            lat=city_sales_mapped['lat'],
-            mode='markers', # 'text' entfernt, damit sich bei vielen Städten die Namen nicht überlappen
-            marker=dict(
-                size=8, color='#FF4B4B', 
-                line=dict(width=1, color='white'), symbol='circle'
-            ),
-            hoverinfo="text",
-            # HIER definieren wir die genauen Hover-Daten für die gefilterte Stadt!
-            hovertext=city_sales_mapped['city'] + 
-                      "<br>Umsatz: $" + city_sales_mapped['revenue_usd'].apply(lambda x: f"{x:,.0f}") +
-                      "<br>Verkaufte Einheiten: " + city_sales_mapped['units_sold'].astype(str),
-            showlegend=False
-        ))
+        points = alt.Chart(city_sales_mapped).mark_circle(
+            opacity=0.8, stroke='white', strokeWidth=1
+        ).encode(
+            longitude='lon:Q', 
+            latitude='lat:Q',
+            # 1. Größe der Blase basierend auf Umsatz
+            size=alt.Size('revenue_usd:Q', scale=alt.Scale(range=[20, 500]), legend=None),
+            # 2. Farbe der Blase basierend auf Umsatz (Das erzeugt die COLOR BAR rechts!)
+            color=alt.Color('revenue_usd:Q', 
+                            scale=alt.Scale(scheme='reds'), 
+                            legend=alt.Legend(title='Umsatz (USD)', orient='right', format='$,.0f')),
+            tooltip=[
+                alt.Tooltip('city:N', title='Stadt'),
+                alt.Tooltip('revenue_usd:Q', title='Umsatz', format='$,.0f'),
+                alt.Tooltip('units_sold:Q', title='Einheiten')
+            ]
+        )
+        altair_map = (base_map + points).properties(height=350)
+    else:
+        altair_map = base_map.properties(height=350)
     
-    # 4. Styling der Karte
-    fig_map.update_geos(
-        projection_type="natural earth", showframe=False, showcoastlines=True,
-        coastlinecolor="lightgrey", showland=True, landcolor="#F0F0F0", showocean=False
-    )
-    
-    fig_map.update_layout(
-        margin=dict(l=0, r=0, t=10, b=0),
-        coloraxis_colorbar=dict(title="", thickness=15),
-        plot_bgcolor="rgba(0,0,0,0)", paper_bgcolor="rgba(0,0,0,0)"
-    )
-    
-    st.plotly_chart(fig_map, use_container_width=True)
+    st.altair_chart(altair_map, use_container_width=True)
 
 with col_bar:
     st.subheader("📦 Bestseller Modelle")
@@ -193,10 +169,9 @@ with col_bar:
     ).properties(height=350)
     st.altair_chart(bar_chart, use_container_width=True)
 
-    
 st.divider()
 
-# --- Phase 5: Zeitreihe & Heatmap ---
+# --- Phase 5: Zeitreihe & Heatmap (Altair) ---
 st.subheader("📈 Zeitreihenanalyse & Forecasting")
 st.caption("Historische Verkaufsdaten kombiniert mit einem 3-Monats-Trend zur proaktiven Bestandserkennung.")
 
@@ -218,7 +193,7 @@ line_trend = base_line.mark_line(color='#ff7f0e', strokeDash=[5, 5], strokeWidth
 combined_line_chart = (line_revenue + line_trend).properties(height=350)
 st.altair_chart(combined_line_chart, use_container_width=True)
 
-st.subheader("🗓️ Saisonalität & Bestellzyklen (Altair Heatmap)")
+st.subheader("🗓️ Saisonalität & Bestellzyklen")
 heatmap_df = filtered_df.copy()
 heatmap_df['Monat'] = heatmap_df['sale_date'].dt.month
 heatmap_data = heatmap_df.groupby(['category', 'Monat'])['units_sold'].sum().reset_index()
@@ -263,13 +238,12 @@ with col_table:
     def style_cities(val):
         return city_colors.get(val, '')
     
-    # Kompatibilitäts-Check: Nutzt .map() in neuen Pandas-Versionen, fällt auf .applymap() zurück bei älteren.
+    # Kompatibilitäts-Check
     try:
         styler = pivot_table.style.map(style_cities, subset=['city'])
     except AttributeError:
         styler = pivot_table.style.applymap(style_cities, subset=['city'])
         
-    # Tabelle ausgeben
     st.dataframe(
         styler.background_gradient(subset=['Gesamt Einheiten'], cmap='Blues').format(precision=0),
         use_container_width=True
