@@ -36,7 +36,7 @@ all_categories = df['category'].unique().tolist()
 selected_categories = st.sidebar.multiselect(
     "Produktkategorie wählen:",
     options=all_categories,
-    default=all_categories
+    default=None
 )
 
 # Datums-Filter
