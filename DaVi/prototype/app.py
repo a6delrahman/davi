@@ -155,17 +155,29 @@ st.divider()
 col_table, col_fazit = st.columns([1.5, 1])
 
 with col_table:
-    st.subheader("🚨 Top 10 Logistik-Hotspots")
-    st.caption("Diese Städte benötigen höchste Priorität bei der lokalen Lagerauffüllung.")
+    st.subheader("📍 Logistik-Hotspots (Detailansicht)")
+    st.caption("Verteilung der Lagerbestände. Scrollen Sie, um alle Hubs zu sehen.")
     
+    # Gruppieren nach Land und Stadt
     top_hotspots = filtered_df.groupby(['country', 'city'])[['units_sold', 'revenue_usd']].sum().reset_index()
-    top_hotspots = top_hotspots.sort_values(by='units_sold', ascending=False).head(10)
     
-    # FIX: Dynamischer Index! Passt sich automatisch an, egal ob 1, 3 oder 10 Zeilen vorhanden sind.
+    # Sortieren nach verkauften Einheiten (ohne .head(10) Limit!)
+    top_hotspots = top_hotspots.sort_values(by='units_sold', ascending=False)
+    
+    # NEU: Wir berechnen, wie viel Prozent jede Stadt am aktuellen Filter ausmacht
+    total_rev_filtered = top_hotspots['revenue_usd'].sum()
+    top_hotspots['% vom Umsatz'] = (top_hotspots['revenue_usd'] / total_rev_filtered) * 100 if total_rev_filtered > 0 else 0
+    
+    # Dynamischer Index
     top_hotspots.index = range(1, len(top_hotspots) + 1) 
     
+    # Tabelle formatieren (mit der neuen Prozent-Spalte)
     st.dataframe(
-        top_hotspots.style.background_gradient(subset=['units_sold'], cmap='Blues').format({'revenue_usd': '${:,.0f}'}), 
+        top_hotspots.style.background_gradient(subset=['units_sold'], cmap='Blues')
+                          .format({
+                              'revenue_usd': '${:,.0f}', 
+                              '% vom Umsatz': '{:.1f}%'
+                          }), 
         use_container_width=True
     )
 
@@ -175,5 +187,5 @@ with col_fazit:
     **Vom Report zur Aktion:**
     1. **Fokus:** Identifizieren Sie im Balkendiagramm die Bestseller und allozieren Sie Budgets entsprechend.
     2. **Timing:** Nutzen Sie die Heatmap und den Trend-Indikator, um Bestellungen auszulösen, *bevor* die Nachfragespitze eintritt.
-    3. **Routing:** Routen Sie Container-Schiffe priorisiert in die Top 10 Hotspots (siehe Tabelle links), um Transportkosten zu sparen.
+    3. **Dezentrale Logistik:** Die Hotspot-Tabelle (links) zeigt oft eine starke Fragmentierung. Nutzen Sie kleinere, dezentrale Zwischenlager, anstatt alles in eine einzige Hauptstadt zu liefern.
     """)
