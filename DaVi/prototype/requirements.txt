@@ -3,3 +3,4 @@ streamlit
 pandas
 plotly
 altair>=5.5.0
+vega-datasets
