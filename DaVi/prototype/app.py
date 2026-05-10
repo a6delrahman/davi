@@ -155,29 +155,28 @@ st.divider()
 col_table, col_fazit = st.columns([1.5, 1])
 
 with col_table:
-    st.subheader("📍 Logistik-Hotspots (Detailansicht)")
-    st.caption("Verteilung der Lagerbestände. Scrollen Sie, um alle Hubs zu sehen.")
+    st.subheader("📍 Logistik-Hotspots (Kategorie-Detailansicht)")
+    st.caption("Verteilung der Lagerbestände pro Stadt, aufgeschlüsselt nach Produktkategorie.")
     
-    # Gruppieren nach Land und Stadt
-    top_hotspots = filtered_df.groupby(['country', 'city'])[['units_sold', 'revenue_usd']].sum().reset_index()
+    # 1. Daten nach Land, Stadt UND Kategorie gruppieren
+    hotspot_cat = filtered_df.groupby(['country', 'city', 'category'])['units_sold'].sum().reset_index()
     
-    # Sortieren nach verkauften Einheiten (ohne .head(10) Limit!)
-    top_hotspots = top_hotspots.sort_values(by='units_sold', ascending=False)
+    # 2. Pivot Table erstellen (Kategorien werden zu Spalten)
+    pivot_table = hotspot_cat.pivot(index=['country', 'city'], columns='category', values='units_sold').fillna(0)
     
-    # NEU: Wir berechnen, wie viel Prozent jede Stadt am aktuellen Filter ausmacht
-    total_rev_filtered = top_hotspots['revenue_usd'].sum()
-    top_hotspots['% vom Umsatz'] = (top_hotspots['revenue_usd'] / total_rev_filtered) * 100 if total_rev_filtered > 0 else 0
+    # 3. Eine "Gesamt" Spalte hinzufügen, um danach sortieren zu können
+    pivot_table['Gesamt Einheiten'] = pivot_table.sum(axis=1)
     
-    # Dynamischer Index
-    top_hotspots.index = range(1, len(top_hotspots) + 1) 
+    # 4. Nach Gesamteinheiten sortieren und Index zurücksetzen
+    pivot_table = pivot_table.sort_values(by='Gesamt Einheiten', ascending=False).reset_index()
     
-    # Tabelle formatieren (mit der neuen Prozent-Spalte)
+    # 5. Dynamischer Index ab 1
+    pivot_table.index = range(1, len(pivot_table) + 1) 
+    
+    # 6. Als schicke Tabelle ausgeben (Farbe auf die Gesamt-Spalte anwenden)
     st.dataframe(
-        top_hotspots.style.background_gradient(subset=['units_sold'], cmap='Blues')
-                          .format({
-                              'revenue_usd': '${:,.0f}', 
-                              '% vom Umsatz': '{:.1f}%'
-                          }), 
+        pivot_table.style.background_gradient(subset=['Gesamt Einheiten'], cmap='Blues')
+                         .format(precision=0), # Verhindert, dass .0 bei den Einheiten steht
         use_container_width=True
     )
 
@@ -187,5 +186,5 @@ with col_fazit:
     **Vom Report zur Aktion:**
     1. **Fokus:** Identifizieren Sie im Balkendiagramm die Bestseller und allozieren Sie Budgets entsprechend.
     2. **Timing:** Nutzen Sie die Heatmap und den Trend-Indikator, um Bestellungen auszulösen, *bevor* die Nachfragespitze eintritt.
-    3. **Dezentrale Logistik:** Die Hotspot-Tabelle (links) zeigt oft eine starke Fragmentierung. Nutzen Sie kleinere, dezentrale Zwischenlager, anstatt alles in eine einzige Hauptstadt zu liefern.
+    3. **Dezentrale Logistik:** Die Hotspot-Tabelle (links) zeigt nun exakt, *welche* Produktkategorien in welchen Städten benötigt werden. Optimieren Sie die Container-Beladung basierend auf diesem Matrix-Profil.
     """)
