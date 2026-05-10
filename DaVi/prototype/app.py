@@ -29,7 +29,7 @@ st.markdown("""
 **Vom reaktiven Reporting zur proaktiven Bestandssteuerung.** Dieses Dashboard dient Supply Chain Managern zur strategischen Entscheidungsfindung.
 """)
 
-# --- Phase 2: Optimierte Sidebar (Kaskadierende Filter) ---
+# --- Phase 2: Optimierte Sidebar (Dynamische & Optionale Filter) ---
 st.sidebar.header("Filter & Steuerung")
 
 # 1. Kategorie-Filter
@@ -40,23 +40,32 @@ selected_categories = st.sidebar.multiselect("Produktkategorie:", all_categories
 all_countries = sorted(df['country'].unique().tolist())
 selected_countries = st.sidebar.multiselect("Land (Hotspots):", all_countries, default=all_countries)
 
-# 3. Kaskadierender Städte-Filter (zeigt nur Städte der gewählten Länder)
-available_cities = sorted(df[df['country'].isin(selected_countries)]['city'].unique().tolist())
-selected_cities = st.sidebar.multiselect("Stadt (Logistik-Hubs):", available_cities, default=available_cities)
+# 3. Kaskadierender Städte-Filter (optional)
+if selected_countries:
+    available_cities = sorted(df[df['country'].isin(selected_countries)]['city'].unique().tolist())
+else:
+    available_cities = sorted(df['city'].unique().tolist())
+
+# WICHTIG: default=[] macht den Filter beim Start leer. Er ist nun rein optional!
+selected_cities = st.sidebar.multiselect("Stadt (optional):", available_cities, default=[])
 
 # 4. Datums-Filter
 min_date = df['sale_date'].min().date()
 max_date = df['sale_date'].max().date()
 start_date, end_date = st.sidebar.date_input("Zeitraum wählen:", value=[min_date, max_date], min_value=min_date, max_value=max_date)
 
-# DataFrame filtern
-mask = (
-    df['category'].isin(selected_categories) & 
-    df['country'].isin(selected_countries) &
-    df['city'].isin(selected_cities) &
-    (df['sale_date'].dt.date >= start_date) & 
-    (df['sale_date'].dt.date <= end_date)
-)
+# --- Dynamische Filter-Logik (Behebt den leeren Screen) ---
+# Wir starten mit dem Datum, da dieses immer vorhanden ist
+mask = (df['sale_date'].dt.date >= start_date) & (df['sale_date'].dt.date <= end_date)
+
+# Nur filtern, wenn die Felder auch wirklich befüllt sind
+if selected_categories:
+    mask &= df['category'].isin(selected_categories)
+if selected_countries:
+    mask &= df['country'].isin(selected_countries)
+if selected_cities:
+    mask &= df['city'].isin(selected_cities)
+
 filtered_df = df[mask]
 
 if filtered_df.empty:
@@ -94,10 +103,10 @@ with col_bar:
     st.subheader("📦 Bestseller Modelle (Altair)")
     st.caption("Umsatzstärkste spezifische Produkte (Grundlage für Produktionspriorisierung).")
     
-    # Altair Horizontal Bar Chart (Besser lesbar als ein Treemap)
+    # FIX: labelLimit=0 erzwingt, dass die langen Produktnamen nicht abgeschnitten werden!
     bar_chart = alt.Chart(filtered_df).mark_bar(cornerRadiusEnd=4).encode(
         x=alt.X('sum(revenue_usd):Q', title='Gesamtumsatz (USD)'),
-        y=alt.Y('product_name:N', sort='-x', title=''), # Sortiert absteigend
+        y=alt.Y('product_name:N', sort='-x', title='', axis=alt.Axis(labelLimit=0)), 
         color=alt.Color('category:N', scale=alt.Scale(scheme='tealblues'), legend=alt.Legend(title="Kategorie", orient='bottom')),
         tooltip=[alt.Tooltip('product_name', title='Produkt'), alt.Tooltip('sum(revenue_usd):Q', title='Umsatz', format='$,.0f')]
     ).properties(height=350)
@@ -115,7 +124,6 @@ monthly_sales = time_df.groupby('YearMonth')['revenue_usd'].sum().reset_index()
 monthly_sales['YearMonth'] = monthly_sales['YearMonth'].dt.to_timestamp()
 monthly_sales['MA_Trend'] = monthly_sales['revenue_usd'].rolling(window=3).mean()
 
-# Altair Line Chart mit 2 Ebenen (Historisch + Trend)
 base_line = alt.Chart(monthly_sales).encode(x=alt.X('YearMonth:T', title='Datum'))
 line_revenue = base_line.mark_line(color='#1f77b4', strokeWidth=3).encode(
     y=alt.Y('revenue_usd:Q', title='Umsatz (USD)'),
@@ -133,7 +141,6 @@ heatmap_df = filtered_df.copy()
 heatmap_df['Monat'] = heatmap_df['sale_date'].dt.month
 heatmap_data = heatmap_df.groupby(['category', 'Monat'])['units_sold'].sum().reset_index()
 
-# Altair Heatmap
 heatmap = alt.Chart(heatmap_data).mark_rect().encode(
     x=alt.X('Monat:O', title='Monat (1-12)', axis=alt.Axis(labelAngle=0)),
     y=alt.Y('category:N', title='Kategorie'),
@@ -151,7 +158,7 @@ with col_table:
     st.subheader("🚨 Top 10 Logistik-Hotspots")
     st.caption("Diese Städte benötigen höchste Priorität bei der lokalen Lagerauffüllung.")
     
-    # FIX: Groupby includes both 'country' and 'city' now
+    # Inklusive der Anpassung für Land und Stadt aus dem vorherigen Schritt
     top_hotspots = filtered_df.groupby(['country', 'city'])[['units_sold', 'revenue_usd']].sum().reset_index()
     top_hotspots = top_hotspots.sort_values(by='units_sold', ascending=False).head(10)
     top_hotspots.index = range(1, 11) 
