@@ -179,16 +179,18 @@ st.divider()
 # --- Phase 6: Actionable Data & Fazit ---
 col_table, col_fazit = st.columns([1.5, 1])
 
+# --- OPTIMIERT: Phase 6 - Actionable Data Table (Länderebene) ---
 with col_table:
     st.subheader("🚨 Top 10 Logistik-Hotspots")
-    st.caption("Diese Städte haben aktuell das höchste Absatzvolumen. Lagerbestände sollten hier priorisiert werden.")
+    st.caption("Aufgrund der globalen Streuung auf Länderebene aggregiert. Diese Märkte benötigen Priorität bei der Lagerauffüllung.")
     
-    top_cities = filtered_df.groupby(['country', 'city'])[['units_sold', 'revenue_usd']].sum().reset_index()
-    top_cities = top_cities.sort_values(by='units_sold', ascending=False).head(10)
-    top_cities.index = range(1, 11) # Index von 1 bis 10 statt Original-Index
+    # FIX: Wir gruppieren nur noch nach 'country', nicht mehr nach 'city'
+    top_countries = filtered_df.groupby('country')[['units_sold', 'revenue_usd']].sum().reset_index()
+    top_countries = top_countries.sort_values(by='units_sold', ascending=False).head(10)
+    top_countries.index = range(1, 11) # Index von 1 bis 10 für eine saubere Tabelle
     
     st.dataframe(
-        top_cities.style.background_gradient(subset=['units_sold'], cmap='Blues')
+        top_countries.style.background_gradient(subset=['units_sold'], cmap='Blues')
                         .format({'revenue_usd': '${:,.0f}'}),
         use_container_width=True
     )
