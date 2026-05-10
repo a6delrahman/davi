@@ -27,7 +27,7 @@ def fetch_city_coordinates(city_name):
 # --- Phase 1: Data Loading ---
 @st.cache_data
 def load_data():
-    df = pd.read_csv('samsung_global_sales_dataset.csv')
+    df = pd.read_csv('DaVi/prototype/samsung_global_sales_dataset.csv')
     df['sale_date'] = pd.to_datetime(df['sale_date'])
     return df
 
