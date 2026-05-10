@@ -60,7 +60,7 @@ filtered_df = df[mask]
 
 # Abbruch, falls Filter zu streng sind
 if filtered_df.empty:
-    st.warning("Keine Daten für die gewählten Filter verfügbar. Bitte passen Sie die Auswahl in der Sidebar an.")
+    st.warning("Keine Daten für die gewählten Filter verfügbar. Bitte passe die Auswahl in der Sidebar an.")
     st.stop()
 
 # --- Phase 3: High-Level KPIs (Erweitert) ---
@@ -89,16 +89,29 @@ col_map, col_tree = st.columns(2)
 with col_map:
     st.subheader("🌍 Geografische Umsatzverteilung")
     st.caption("Wo auf der Welt wird der meiste Umsatz generiert? (Grundlage für regionale Lagerallokation)")
+    # --- Option 1: 3D Interactive Globe ---
     country_sales = filtered_df.groupby('country')['revenue_usd'].sum().reset_index()
     fig_map = px.choropleth(
         country_sales,
         locations='country',
         locationmode='country names',
         color='revenue_usd',
-        color_continuous_scale='Blues',
+        color_continuous_scale='Plasma', # A much more vibrant color scale
         labels={'revenue_usd': 'Umsatz (USD)', 'country': 'Land'}
     )
-    fig_map.update_layout(margin=dict(l=0, r=0, t=0, b=0))
+    
+    # The magic lines that turn it into a 3D Globe
+    fig_map.update_geos(
+        projection_type="orthographic",
+        showcoastlines=True, 
+        coastlinecolor="rgba(255, 255, 255, 0.3)",
+        showland=True, landcolor="#2A2A2A", # Sleek dark grey continents
+        showocean=True, oceancolor="#283F8A" # Matches Streamlit's dark mode background
+    )
+    fig_map.update_layout(
+        margin=dict(l=0, r=0, t=0, b=0),
+        coloraxis_colorbar=dict(title="", thicknessmode="pixels", thickness=15)
+    )
     st.plotly_chart(fig_map, use_container_width=True)
 
 with col_tree:
@@ -144,7 +157,7 @@ st.plotly_chart(fig_line, use_container_width=True)
 
 # Saisonalitäts-Heatmap (Darunter)
 st.subheader("🗓️ Saisonalität & Bestellzyklen (Heatmap)")
-st.caption("Nutzen Sie diese Ansicht, um wiederkehrende Nachfragespitzen in bestimmten Monaten frühzeitig zu erkennen.")
+st.caption("Nutze diese Ansicht, um wiederkehrende Nachfragespitzen in bestimmten Monaten frühzeitig zu erkennen.")
 
 heatmap_df = filtered_df.copy()
 heatmap_df['Monat'] = heatmap_df['sale_date'].dt.month
@@ -184,7 +197,7 @@ with col_fazit:
     st.subheader("💡 Strategische Handlungsempfehlung")
     st.info("""
     **Vom Report zur Aktion:**
-    1. **Fokus:** Identifizieren Sie im Treemap die Bestseller und allozieren Sie Budgets entsprechend.
-    2. **Timing:** Nutzen Sie die Heatmap und den Trend-Indikator, um Bestellungen auszulösen, *bevor* die Nachfragespitze (Out-of-Stock) eintritt.
-    3. **Routing:** Routen Sie Container-Schiffe priorisiert in die Top 10 Logistik-Hotspots, um Transportkosten für lokale Umverteilungen zu sparen.
+    1. **Fokus:** Identifiziere im Treemap die Bestseller und allozieren Sie Budgets entsprechend.
+    2. **Timing:** Nutze die Heatmap und den Trend-Indikator, um Bestellungen auszulösen, *bevor* die Nachfragespitze (Out-of-Stock) eintritt.
+    3. **Routing:** Route Container-Schiffe priorisiert in die Top 10 Logistik-Hotspots, um Transportkosten für lokale Umverteilungen zu sparen.
     """)
