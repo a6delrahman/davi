@@ -256,6 +256,15 @@ with col_table:
         use_container_width=True
     )
 
+    # CSV Export Button
+    csv = pivot_table.to_csv(index=False).encode('utf-8')
+    st.download_button(
+        label="📥 Hotspot-Daten als CSV exportieren",
+        data=csv,
+        file_name='logistik_hotspots.csv',
+        mime='text/csv',
+    )    
+
 with col_fazit:
     st.subheader("💡 Handlungsempfehlung")
     st.info("""
